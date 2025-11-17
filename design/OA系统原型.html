@@ -1,0 +1,734 @@
+
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>财务助手 - 企业OA系统</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://code.iconify.design/3/3.1.1/iconify.min.js"></script>
+<style>
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .hide-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    .page {
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    .active-tab {
+      position: relative;
+    }
+    .active-tab::after {
+      content: "";
+      position: absolute;
+      bottom: -8px;
+      left: 0;
+      width: 100%;
+      height: 2px;
+      background-color: #2563eb;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    .chat-bubble-user {
+      border-radius: 16px 16px 16px 4px;
+    }
+    .chat-bubble-ai {
+      border-radius: 16px 16px 4px 16px;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-spin {
+      animation: spin 1s linear infinite;
+    }
+  </style>
+<script>
+    // API配置
+    const API_BASE_URL = 'http://localhost:5000';
+    
+    // 发送消息到RAG API
+    async function sendMessageToRAG(question) {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/qa`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ question: question })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.error('API调用失败:', error);
+        return {
+          success: false,
+          error: error.message,
+          answer: '抱歉，服务暂时不可用，请稍后重试。',
+          sources: []
+        };
+      }
+    }
+    
+    // 格式化AI回答，包含引用来源
+    function formatAIResponse(data) {
+      if (!data.success) {
+        return `<p class="text-sm text-gray-800 mb-2">${data.answer || data.error || '抱歉，处理您的问题时出现了错误。'}</p>`;
+      }
+      
+      let html = `<p class="text-sm text-gray-800 mb-2">${data.answer}</p>`;
+      
+      // 添加引用来源
+      if (data.sources && data.sources.length > 0) {
+        html += `<div class="mt-3 space-y-2">`;
+        html += `<p class="text-xs font-medium text-gray-700 mb-1">引用来源：</p>`;
+        data.sources.forEach((source, index) => {
+          html += `
+            <div class="text-xs text-gray-600 bg-blue-100 rounded-lg p-2">
+              <span class="font-medium">[${index + 1}] ${source.document}</span>
+              ${source.excerpt ? `<p class="mt-1 text-gray-600">${source.excerpt}</p>` : ''}
+            </div>
+          `;
+        });
+        html += `</div>`;
+      }
+      
+      return html;
+    }
+    
+    document.addEventListener('DOMContentLoaded', function() {
+      // 切换页面
+      function showPage(pageId) {
+        document.querySelectorAll('.page').forEach(page => {
+          page.classList.add('hidden');
+        });
+        document.getElementById(pageId).classList.remove('hidden');
+        
+        // 更新导航栏标题
+        const navCenter = document.getElementById('nav-center');
+        if(pageId === 'home') {
+          navCenter.innerHTML = `
+            <div class="flex space-x-8">
+              <div class="text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-home">首页</div>
+              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-applications">我的申请</div>
+              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-assistant">财务助理</div>
+            </div>
+          `;
+          // 重新绑定导航事件
+          bindNavEvents();
+        } else if(pageId === 'applications') {
+          navCenter.innerHTML = `
+            <div class="flex space-x-8">
+              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-home">首页</div>
+              <div class="text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-applications">我的申请</div>
+              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-assistant">财务助理</div>
+            </div>
+          `;
+          // 重新绑定导航事件
+          bindNavEvents();
+        } else if(pageId === 'qa') {
+          navCenter.innerHTML = `
+            <div class="flex items-center justify-center">
+              <div class="text-xl font-bold text-gray-800">财务制度查询</div>
+            </div>
+          `;
+        } else if(pageId === 'reimburse') {
+          navCenter.innerHTML = `
+            <div class="flex items-center justify-center">
+              <div class="text-xl font-bold text-gray-800">新建报销申请单</div>
+            </div>
+          `;
+        }
+      }
+
+      // 绑定导航事件函数（使用事件委托避免重复绑定）
+      function bindNavEvents() {
+        const navCenter = document.getElementById('nav-center');
+        if(navCenter) {
+          // 移除旧的事件监听器，使用事件委托
+          navCenter.onclick = function(e) {
+            const target = e.target.closest('[id^="nav-"]');
+            if(!target) return;
+            
+            const id = target.id;
+            if(id === 'nav-home') {
+              showPage('home');
+            } else if(id === 'nav-applications') {
+              showPage('applications');
+            } else if(id === 'nav-assistant') {
+              showPage('home');
+            }
+          };
+        }
+      }
+
+      // 设置初始页面
+      showPage('home');
+
+      // 绑定导航
+      const homeLink = document.getElementById('home-link');
+      if(homeLink) {
+        homeLink.addEventListener('click', () => showPage('home'));
+      }
+      document.getElementById('qa-card').addEventListener('click', () => showPage('qa'));
+      document.getElementById('reimburse-card').addEventListener('click', () => showPage('reimburse'));
+      document.getElementById('home-return').addEventListener('click', () => showPage('home'));
+      
+      // 初始绑定导航栏事件
+      bindNavEvents();
+      document.getElementById('floating-btn').addEventListener('click', () => {
+        document.getElementById('chat-panel').classList.toggle('hidden');
+      });
+      
+      // 关闭聊天面板
+      const closeChatBtn = document.getElementById('close-chat');
+      if(closeChatBtn) {
+        closeChatBtn.addEventListener('click', () => {
+          document.getElementById('chat-panel').classList.add('hidden');
+        });
+      }
+      
+      // 聊天面板中的发送按钮
+      const chatPanelSendBtn = document.getElementById('chat-panel-send-btn');
+      const chatPanelInput = document.getElementById('chat-panel-input');
+      if(chatPanelSendBtn && chatPanelInput) {
+        chatPanelSendBtn.addEventListener('click', async function() {
+          const message = chatPanelInput.value;
+          if(message.trim() === '') return;
+          
+          const chatArea = document.querySelector('#chat-panel .overflow-y-auto');
+          if(!chatArea) return;
+          
+          // 禁用按钮，显示加载状态
+          chatPanelSendBtn.disabled = true;
+          const originalHTML = chatPanelSendBtn.innerHTML;
+          chatPanelSendBtn.innerHTML = '<span class="iconify animate-spin" data-icon="mdi:loading"></span>';
+          
+          // 添加用户消息
+          const userMsg = document.createElement('div');
+          userMsg.className = 'w-full flex justify-end mb-4 opacity-0 animate-fadeIn';
+          userMsg.innerHTML = `
+            <div class="max-w-xs bg-gray-100 p-3 rounded-xl rounded-br-none ml-10">
+              <p class="text-sm text-gray-800">${message}</p>
+            </div>
+          `;
+          chatArea.appendChild(userMsg);
+          
+          // 清空输入
+          chatPanelInput.value = '';
+          
+          // 添加淡入效果
+          setTimeout(() => {
+            userMsg.classList.remove('opacity-0');
+          }, 10);
+          
+          // 添加加载中的AI消息
+          const loadingMsg = document.createElement('div');
+          loadingMsg.className = 'w-full flex justify-start mb-4';
+          loadingMsg.innerHTML = `
+            <div class="max-w-xs bg-blue-50 p-3 rounded-xl rounded-bl-none mr-10">
+              <p class="text-sm text-gray-600">正在思考...</p>
+            </div>
+          `;
+          chatArea.appendChild(loadingMsg);
+          chatArea.scrollTop = chatArea.scrollHeight;
+          
+          try {
+            // 调用RAG API
+            const data = await sendMessageToRAG(message);
+            
+            // 移除加载消息
+            loadingMsg.remove();
+            
+            // 添加AI响应
+            const aiMsg = document.createElement('div');
+            aiMsg.className = 'w-full flex justify-start mb-4 opacity-0 animate-fadeIn';
+            aiMsg.innerHTML = `
+              <div class="max-w-xs bg-blue-50 p-3 rounded-xl rounded-bl-none mr-10">
+                ${formatAIResponse(data)}
+              </div>
+            `;
+            chatArea.appendChild(aiMsg);
+            
+            // 滚动到底部
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            // 添加淡入效果
+            setTimeout(() => {
+              aiMsg.classList.remove('opacity-0');
+            }, 10);
+          } catch (error) {
+            // 移除加载消息
+            loadingMsg.remove();
+            
+            // 添加错误消息
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'w-full flex justify-start mb-4 opacity-0 animate-fadeIn';
+            errorMsg.innerHTML = `
+              <div class="max-w-xs bg-red-50 p-3 rounded-xl rounded-bl-none mr-10">
+                <p class="text-sm text-red-800">抱歉，处理您的问题时出现了错误。请稍后重试。</p>
+              </div>
+            `;
+            chatArea.appendChild(errorMsg);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            setTimeout(() => {
+              errorMsg.classList.remove('opacity-0');
+            }, 10);
+          } finally {
+            // 恢复按钮
+            chatPanelSendBtn.disabled = false;
+            chatPanelSendBtn.innerHTML = originalHTML;
+          }
+        });
+        
+        // 聊天面板输入框回车发送
+        chatPanelInput.addEventListener('keypress', function(e) {
+          if(e.key === 'Enter') {
+            chatPanelSendBtn.click();
+          }
+        });
+      }
+
+      // 智能问答页面聊天交互
+      const sendBtn = document.getElementById('send-btn');
+      if(sendBtn) {
+        sendBtn.addEventListener('click', async function() {
+          const message = document.getElementById('chat-input').value;
+          if(message.trim() === '') return;
+          
+          const chatArea = document.getElementById('chat-container');
+          if(!chatArea) return;
+          
+          // 禁用按钮，显示加载状态
+          sendBtn.disabled = true;
+          const originalHTML = sendBtn.innerHTML;
+          sendBtn.innerHTML = '<span class="iconify animate-spin" data-icon="mdi:loading"></span>';
+          
+          // 添加用户消息
+          const userMsg = document.createElement('div');
+          userMsg.className = 'w-full flex justify-end mb-4 opacity-0 animate-fadeIn';
+          userMsg.innerHTML = `
+            <div class="max-w-md bg-gray-100 p-4 chat-bubble-user">
+              <p class="text-sm text-gray-800">${message}</p>
+            </div>
+          `;
+          chatArea.appendChild(userMsg);
+          
+          // 清空输入
+          document.getElementById('chat-input').value = '';
+          
+          // 添加淡入效果
+          setTimeout(() => {
+            userMsg.classList.remove('opacity-0');
+          }, 10);
+          
+          // 添加加载中的AI消息
+          const loadingMsg = document.createElement('div');
+          loadingMsg.className = 'w-full flex justify-start mb-4';
+          loadingMsg.innerHTML = `
+            <div class="max-w-md bg-blue-50 p-4 chat-bubble-ai">
+              <p class="text-sm text-gray-600">正在思考...</p>
+            </div>
+          `;
+          chatArea.appendChild(loadingMsg);
+          chatArea.scrollTop = chatArea.scrollHeight;
+          
+          try {
+            // 调用RAG API
+            const data = await sendMessageToRAG(message);
+            
+            // 移除加载消息
+            loadingMsg.remove();
+            
+            // 添加AI响应
+            const aiMsg = document.createElement('div');
+            aiMsg.className = 'w-full flex justify-start mb-4 opacity-0 animate-fadeIn';
+            aiMsg.innerHTML = `
+              <div class="max-w-md bg-blue-50 p-4 chat-bubble-ai">
+                ${formatAIResponse(data)}
+                ${data.sources && data.sources.length > 0 ? `
+                  <button class="mt-3 text-blue-600 text-xs font-medium flex items-center hover:underline">
+                    <span class="iconify mr-1 text-blue-600" data-icon="mdi:file-document"></span>
+                    查看制度全文
+                  </button>
+                ` : ''}
+              </div>
+            `;
+            chatArea.appendChild(aiMsg);
+            
+            // 滚动到底部
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            // 添加淡入效果
+            setTimeout(() => {
+              aiMsg.classList.remove('opacity-0');
+            }, 10);
+          } catch (error) {
+            // 移除加载消息
+            loadingMsg.remove();
+            
+            // 添加错误消息
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'w-full flex justify-start mb-4 opacity-0 animate-fadeIn';
+            errorMsg.innerHTML = `
+              <div class="max-w-md bg-red-50 p-4 chat-bubble-ai">
+                <p class="text-sm text-red-800">抱歉，处理您的问题时出现了错误。请稍后重试。</p>
+              </div>
+            `;
+            chatArea.appendChild(errorMsg);
+            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            setTimeout(() => {
+              errorMsg.classList.remove('opacity-0');
+            }, 10);
+          } finally {
+            // 恢复按钮
+            sendBtn.disabled = false;
+            sendBtn.innerHTML = originalHTML;
+          }
+        });
+      }
+      
+      // 输入框回车发送
+      const chatInput = document.getElementById('chat-input');
+      if(chatInput && sendBtn) {
+        chatInput.addEventListener('keypress', function(e) {
+          if(e.key === 'Enter' && !sendBtn.disabled) {
+            sendBtn.click();
+          }
+        });
+      }
+    });
+  </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<!-- 导航栏 - 通用 -->
+<header class="bg-white h-16 shadow-sm fixed top-0 w-full z-10">
+<div class="max-w-7xl mx-auto h-full flex items-center px-6">
+<div class="w-1/4 flex items-center" id="nav-left">
+<span class="iconify text-3xl" data-icon="logos:slack"></span>
+</div>
+<div class="w-2/4 flex justify-center" id="nav-center">
+<div class="flex space-x-8">
+<div class="text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-home">首页</div>
+<div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-applications">我的申请</div>
+<div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-assistant">财务助理</div>
+</div>
+</div>
+<div class="w-1/4 flex justify-end" id="nav-right">
+<button class="flex items-center text-gray-800" id="home-return">
+<span class="iconify text-xl" data-icon="material-symbols:arrow-back"></span>
+</button>
+<div class="ml-6 w-8 h-8 rounded-full overflow-hidden">
+<img alt="User profile icon" class="w-full h-full object-cover" id="3" src="https://modao.cc/agent-py/workspace/69193aa18e5c17203307f979/generated_images/c2872d9331e843148acd83981b90f4aa.jpg"/>
+</div>
+</div>
+</div>
+</header>
+<main class="pt-16">
+<!-- 首页 -->
+<div class="page min-h-[calc(100vh-4rem)] max-w-7xl mx-auto px-6" id="home">
+<div class="flex flex-col items-center pt-16 min-h-[calc(100vh-12rem)]">
+<!-- 卡片容器 -->
+<div class="flex flex-col sm:flex-row gap-6 items-center justify-center">
+<!-- 智能问答卡片 -->
+<div class="w-72 h-48 bg-white rounded-xl shadow-md p-6 cursor-pointer transition-transform hover:scale-[1.02] border border-gray-100" id="qa-card">
+<div class="flex flex-col items-start h-full">
+<div class="text-4xl mb-4">💬</div>
+<h3 class="text-lg font-medium text-gray-800 mb-2">智能问答</h3>
+<p class="text-sm text-gray-600">输入财务制度问题，AI立即答复</p>
+</div>
+</div>
+<!-- 快速报销卡片 -->
+<div class="w-72 h-48 bg-white rounded-xl shadow-md p-6 cursor-pointer transition-transform hover:scale-[1.02] border border-gray-100" id="reimburse-card">
+<div class="flex flex-col items-start h-full">
+<div class="text-4xl mb-4">📄</div>
+<h3 class="text-lg font-medium text-gray-800 mb-2">快速报销</h3>
+<p class="text-sm text-gray-600">一键生成报销申请单</p>
+</div>
+</div>
+</div>
+<!-- 悬浮聊天按钮 -->
+<button class="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-blue-600 shadow-lg flex items-center justify-center text-white" id="floating-btn">
+<span class="iconify text-2xl" data-icon="heroicons:chat-bubble-left"></span>
+</button>
+</div>
+</div>
+<!-- 聊天面板 -->
+<div class="hidden fixed bottom-20 right-6 w-80 h-96 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden" id="chat-panel">
+<div class="flex flex-col h-full">
+<div class="h-12 flex items-center justify-between px-4 border-b">
+<div class="text-sm font-medium">财务助手</div>
+<button class="text-gray-500 hover:text-gray-700" id="close-chat">
+<span class="iconify" data-icon="heroicons:x-mark-20-solid"></span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto hide-scrollbar px-4 py-2 bg-gray-50">
+<div class="text-xs text-gray-500 text-center py-3">今天</div>
+<div class="flex justify-start">
+<div class="max-w-xs bg-blue-50 p-3 rounded-xl rounded-bl-none mr-10">
+<p class="text-sm">您好！我是财务助手，可以回答关于报销政策、财务制度等问题。</p>
+</div>
+</div>
+</div>
+<div class="p-3 border-t border-gray-200 bg-white">
+<div class="flex border border-gray-300 rounded-lg overflow-hidden">
+<input class="flex-1 px-3 py-2 text-sm focus:outline-none" placeholder="输入问题..." type="text" id="chat-panel-input"/>
+<button class="px-4 py-2 bg-blue-600 text-white" type="button" id="chat-panel-send-btn">
+<span class="iconify" data-icon="mdi:send"></span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 智能问答页面 -->
+<div class="page hidden min-h-[calc(100vh-4rem)] max-w-7xl mx-auto px-6" id="qa">
+<div class="py-8 flex flex-col h-[calc(100vh-6rem)]">
+<!-- 聊天区域 -->
+<div class="flex-1 overflow-y-auto hide-scrollbar mb-4 bg-white rounded-xl p-6 space-y-4" id="chat-container">
+<div class="flex justify-start">
+<div class="max-w-md bg-blue-50 p-4 chat-bubble-ai">
+<p class="text-sm text-gray-800">您好！我是财务助手，可以回答关于公司报销政策、差旅标准、报销流程等问题。</p>
+</div>
+</div>
+</div>
+<!-- 输入区域 -->
+<div class="h-20 bg-white border-t border-gray-200 px-4 flex items-center">
+<div class="w-full flex items-center border border-gray-300 rounded-lg overflow-hidden">
+<button class="text-gray-500 px-3 py-3">
+<span class="iconify text-xl" data-icon="heroicons:microphone-20-solid"></span>
+</button>
+<input class="flex-1 py-3 text-sm focus:outline-none" id="chat-input" placeholder="请输入您的财务问题..." type="text"/>
+<button class="px-4 py-3 bg-blue-600 text-white" id="send-btn">
+<span class="iconify text-xl" data-icon="mdi:send"></span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 报销单生成页面 -->
+<div class="page hidden min-h-[calc(100vh-4rem)] max-w-7xl mx-auto px-6 py-8" id="reimburse">
+<div class="max-w-4xl mx-auto grid grid-cols-3 gap-6">
+<!-- 表单区域 -->
+<div class="col-span-2 space-y-6">
+<div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+<h3 class="text-base font-medium text-gray-800 mb-4">报销单信息</h3>
+<div class="space-y-4">
+<div>
+<label class="block text-xs text-gray-500 mb-1">费用类型</label>
+<div class="relative">
+<select class="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none">
+<option>差旅费</option>
+<option selected="">交通费</option>
+<option>业务招待费</option>
+<option>办公用品</option>
+<option>其他</option>
+</select>
+<span class="iconify absolute top-3 right-3 text-gray-500" data-icon="heroicons:chevron-down-20-solid"></span>
+</div>
+</div>
+<div>
+<label class="block text-xs text-gray-500 mb-1">出行类型</label>
+<div class="flex space-x-4">
+<div class="flex-1">
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-blue-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+<span class="ml-3 text-sm font-medium text-gray-900">出差</span>
+</label>
+</div>
+<div class="flex-1">
+<label class="relative inline-flex items-center cursor-pointer">
+<input class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-gray-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+<span class="ml-3 text-sm font-medium text-gray-900">市内</span>
+</label>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div>
+<label class="block text-xs text-gray-500 mb-1">日期</label>
+<div class="relative">
+<input class="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none" type="date" value="2025-11-16"/>
+</div>
+</div>
+<div>
+<label class="block text-xs text-gray-500 mb-1">金额</label>
+<div class="relative">
+<input class="w-full border border-gray-300 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-blue-200 focus:border-blue-500 outline-none" type="number" value="568.00"/>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+<h3 class="text-base font-medium text-gray-800 mb-4">票据上传</h3>
+<div class="border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center py-12">
+<span class="iconify text-3xl text-blue-600 mb-3" data-icon="heroicons:cloud-arrow-up"></span>
+<p class="text-sm text-gray-600 mb-2">拖拽发票图片到此区域或点击上传</p>
+<button class="text-sm bg-blue-50 text-blue-600 px-4 py-1.5 rounded-lg hover:bg-blue-100">选择文件</button>
+</div>
+</div>
+</div>
+<!-- 制度提示 -->
+<div class="col-span-1">
+<div class="bg-gray-50 border border-gray-200 rounded-xl p-6 sticky top-6">
+<h3 class="text-base font-medium text-gray-800 mb-3">适用制度摘要</h3>
+<ul class="text-xs text-gray-600 space-y-2">
+<li class="flex">
+<span class="iconify mr-2 mt-0.5 text-green-500" data-icon="heroicons:check-circle-20-solid"></span>
+<div>交通费报销需提供行程单/出租车发票</div>
+</li>
+<li class="flex">
+<span class="iconify mr-2 mt-0.5 text-green-500" data-icon="heroicons:check-circle-20-solid"></span>
+<div>单张发票超过3000元需主管审批</div>
+</li>
+<li class="flex">
+<span class="iconify mr-2 mt-0.5 text-green-500" data-icon="heroicons:check-circle-20-solid"></span>
+<div>报销周期：每月1-10日受理上月单据</div>
+</li>
+<li class="flex">
+<span class="iconify mr-2 mt-0.5 text-orange-500" data-icon="heroicons:exclamation-triangle-20-solid"></span>
+<div>差旅费用需在返回后7个工作日内报销</div>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<!-- 底部按钮 -->
+<div class="max-w-4xl mx-auto border-t border-gray-200 mt-6 pt-4 flex justify-between">
+<button class="px-6 py-2 border border-blue-600 text-blue-600 rounded-lg font-medium hover:bg-blue-50">编辑草稿</button>
+<button class="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">提交审批</button>
+</div>
+</div>
+<!-- 我的申请页面 -->
+<div class="page hidden min-h-[calc(100vh-4rem)] max-w-7xl mx-auto px-6 py-8" id="applications">
+<div class="space-y-6">
+<!-- 页面标题 -->
+<div class="flex items-center justify-between mb-6">
+<h2 class="text-2xl font-bold text-gray-800">我的申请</h2>
+<div class="flex gap-3">
+<button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">全部</button>
+<button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">待审批</button>
+<button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">已通过</button>
+<button class="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">已驳回</button>
+</div>
+</div>
+<!-- 申请列表 -->
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+<!-- 申请项 -->
+<div class="border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<h3 class="text-lg font-medium text-gray-800">差旅费报销</h3>
+<span class="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded">待审批</span>
+</div>
+<div class="text-sm text-gray-600 mb-3">
+<div class="flex items-center gap-4">
+<span>申请时间：2025-01-15 14:30</span>
+<span>金额：¥1,568.00</span>
+<span>费用类型：差旅费</span>
+</div>
+</div>
+<div class="text-xs text-gray-500">审批人：张经理 · 预计1-2个工作日完成审批</div>
+</div>
+<div class="flex flex-col gap-2 ml-4">
+<button class="px-4 py-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50">查看详情</button>
+<button class="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">撤回</button>
+</div>
+</div>
+</div>
+<!-- 申请项 -->
+<div class="border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<h3 class="text-lg font-medium text-gray-800">交通费报销</h3>
+<span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">已通过</span>
+</div>
+<div class="text-sm text-gray-600 mb-3">
+<div class="flex items-center gap-4">
+<span>申请时间：2025-01-12 10:15</span>
+<span>金额：¥568.00</span>
+<span>费用类型：交通费</span>
+</div>
+</div>
+<div class="text-xs text-gray-500">审批人：李主管 · 已于2025-01-13 16:20通过</div>
+</div>
+<div class="flex flex-col gap-2 ml-4">
+<button class="px-4 py-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50">查看详情</button>
+</div>
+</div>
+</div>
+<!-- 申请项 -->
+<div class="border-b border-gray-200 p-6 hover:bg-gray-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<h3 class="text-lg font-medium text-gray-800">业务招待费</h3>
+<span class="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded">已驳回</span>
+</div>
+<div class="text-sm text-gray-600 mb-3">
+<div class="flex items-center gap-4">
+<span>申请时间：2025-01-10 09:00</span>
+<span>金额：¥2,500.00</span>
+<span>费用类型：业务招待费</span>
+</div>
+</div>
+<div class="text-xs text-gray-500">审批人：王经理 · 驳回原因：缺少相关发票凭证</div>
+</div>
+<div class="flex flex-col gap-2 ml-4">
+<button class="px-4 py-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50">查看详情</button>
+<button class="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50">重新提交</button>
+</div>
+</div>
+</div>
+<!-- 申请项 -->
+<div class="p-6 hover:bg-gray-50 transition-colors">
+<div class="flex items-start justify-between">
+<div class="flex-1">
+<div class="flex items-center gap-3 mb-2">
+<h3 class="text-lg font-medium text-gray-800">办公用品采购</h3>
+<span class="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded">已通过</span>
+</div>
+<div class="text-sm text-gray-600 mb-3">
+<div class="flex items-center gap-4">
+<span>申请时间：2025-01-08 15:45</span>
+<span>金额：¥890.00</span>
+<span>费用类型：办公用品</span>
+</div>
+</div>
+<div class="text-xs text-gray-500">审批人：赵主管 · 已于2025-01-09 11:30通过</div>
+</div>
+<div class="flex flex-col gap-2 ml-4">
+<button class="px-4 py-2 text-sm text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50">查看详情</button>
+</div>
+</div>
+</div>
+</div>
+<!-- 空状态提示 -->
+<div class="text-center py-12 text-gray-500">
+<p class="text-sm">暂无更多申请记录</p>
+</div>
+</div>
+</div>
+</main>
+</body>
+</html>

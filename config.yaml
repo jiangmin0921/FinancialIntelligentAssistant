@@ -1,0 +1,39 @@
+# RAG系统配置文件
+
+# 模型配置
+models:
+  embedding:
+    provider: "local"  # 使用本地模型（推荐，避免API超时）或 "openai" 使用OpenAI API
+    model_name: "BAAI/bge-small-zh-v1.5"  # 中文优化的本地embedding模型
+    # 如果使用OpenAI API，取消下面的注释并设置api_key
+    # provider: "openai"
+    # model_name: "text-embedding-3-small"
+    # api_key: "your-openai-api-key"
+  
+  llm:
+    provider: "tongyi"  # 通义千问
+    model_name: "qwen-turbo"
+    api_key: "sk-d72e506491b746cd8b5659f42486eef7"  # 需要设置API Key
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+# 向量库配置
+vector_store:
+  type: "chroma"  # 使用ChromaDB（开箱即用）
+  persist_dir: "./data/vector_store"
+  
+# 文档处理配置
+document:
+  chunk_strategy: "semantic"  # 按语义切分（也可以选择 "page" 或 "title"）
+  chunk_size: 512
+  chunk_overlap: 50
+  
+# 数据目录
+data:
+  documents_dir: "./data/documents"  # 原始文档目录
+  generated_dir: "./data/generated"  # 生成的文档目录
+
+# RAG配置
+rag:
+  top_k: 3  # 检索top-k个相关文档片段
+  similarity_threshold: 0.7  # 相似度阈值
+
