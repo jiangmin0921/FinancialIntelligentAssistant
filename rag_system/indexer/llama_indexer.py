@@ -5,7 +5,8 @@
 import os
 from pathlib import Path
 from typing import List, Optional
-import yaml
+
+from rag_system.config import ConfigError, load_config
 
 try:
     # 尝试新版本导入
@@ -105,8 +106,10 @@ class LlamaIndexer:
     
     def __init__(self, config_path: str = "config.yaml"):
         """初始化索引器"""
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = yaml.safe_load(f)
+        try:
+            self.config = load_config(config_path)
+        except ConfigError as exc:
+            raise ValueError(f"配置加载失败: {exc}") from exc
         
         self.documents_dir = Path(self.config['data']['documents_dir'])
         self.documents_dir.mkdir(parents=True, exist_ok=True)

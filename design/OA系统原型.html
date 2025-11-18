@@ -111,47 +111,38 @@
     }
     
     document.addEventListener('DOMContentLoaded', function() {
+      const pageTabMap = {
+        'home': 'nav-home',
+        'applications': 'nav-applications',
+        'qa': 'nav-assistant',
+        'reimburse': 'nav-assistant'
+      };
+      
+      function setActiveTab(tabId) {
+        const tabs = document.querySelectorAll('#nav-center .nav-tab');
+        tabs.forEach(tab => {
+          const isActive = tab.id === tabId;
+          tab.classList.toggle('active-tab', isActive);
+          tab.classList.toggle('text-blue-600', isActive);
+          tab.classList.toggle('font-medium', isActive);
+          tab.classList.toggle('text-gray-500', !isActive);
+        });
+      }
+      
       // 切换页面
       function showPage(pageId) {
         document.querySelectorAll('.page').forEach(page => {
           page.classList.add('hidden');
         });
-        document.getElementById(pageId).classList.remove('hidden');
+        const pageEl = document.getElementById(pageId);
+        if (pageEl) {
+          pageEl.classList.remove('hidden');
+        }
         
-        // 更新导航栏标题
-        const navCenter = document.getElementById('nav-center');
-        if(pageId === 'home') {
-          navCenter.innerHTML = `
-            <div class="flex space-x-8">
-              <div class="text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-home">首页</div>
-              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-applications">我的申请</div>
-              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-assistant">财务助理</div>
-            </div>
-          `;
-          // 重新绑定导航事件
-          bindNavEvents();
-        } else if(pageId === 'applications') {
-          navCenter.innerHTML = `
-            <div class="flex space-x-8">
-              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-home">首页</div>
-              <div class="text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-applications">我的申请</div>
-              <div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-assistant">财务助理</div>
-            </div>
-          `;
-          // 重新绑定导航事件
-          bindNavEvents();
-        } else if(pageId === 'qa') {
-          navCenter.innerHTML = `
-            <div class="flex items-center justify-center">
-              <div class="text-xl font-bold text-gray-800">财务制度查询</div>
-            </div>
-          `;
-        } else if(pageId === 'reimburse') {
-          navCenter.innerHTML = `
-            <div class="flex items-center justify-center">
-              <div class="text-xl font-bold text-gray-800">新建报销申请单</div>
-            </div>
-          `;
+        // 更新导航激活态
+        const activeTab = pageTabMap[pageId];
+        if (activeTab) {
+          setActiveTab(activeTab);
         }
       }
 
@@ -437,9 +428,9 @@
 </div>
 <div class="w-2/4 flex justify-center" id="nav-center">
 <div class="flex space-x-8">
-<div class="text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-home">首页</div>
-<div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-applications">我的申请</div>
-<div class="text-sm px-2 cursor-pointer hover:text-blue-600" id="nav-assistant">财务助理</div>
+<div class="nav-tab text-sm px-2 font-medium text-blue-600 relative active-tab cursor-pointer" id="nav-home">首页</div>
+<div class="nav-tab text-sm px-2 cursor-pointer hover:text-blue-600 text-gray-500" id="nav-applications">我的申请</div>
+<div class="nav-tab text-sm px-2 cursor-pointer hover:text-blue-600 text-gray-500" id="nav-assistant">财务助理</div>
 </div>
 </div>
 <div class="w-1/4 flex justify-end" id="nav-right">

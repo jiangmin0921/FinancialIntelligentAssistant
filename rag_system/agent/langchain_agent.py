@@ -4,7 +4,8 @@
 
 import os
 from typing import List, Dict, Any
-import yaml
+
+from rag_system.config import ConfigError, load_config
 
 # 检查LangChain Agent相关包（可选，用于完整Agent功能）
 try:
@@ -33,13 +34,24 @@ if not (HAS_LANGCHAIN_OPENAI or HAS_LANGCHAIN_TONGYI):
     print("请运行: pip install langchain-openai langchain-community")
 
 
+def _mask_key(key: str, visible: int = 4) -> str:
+    """Mask sensitive API keys when printing debug logs."""
+    if not key:
+        return "None"
+    if len(key) <= visible * 2:
+        return "***masked***"
+    return f"{key[:visible]}...{key[-visible:]}"
+
+
 class FinancialAgent:
     """财务助手Agent"""
     
     def __init__(self, config_path: str = "config.yaml", retriever=None):
         """初始化Agent"""
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = yaml.safe_load(f)
+        try:
+            self.config = load_config(config_path)
+        except ConfigError as exc:
+            raise ValueError(f"配置加载失败: {exc}") from exc
         
         self.retriever = retriever
         self._setup_llm()
@@ -49,7 +61,8 @@ class FinancialAgent:
     def _setup_llm(self):
         """设置LLM模型"""
         llm_config = self.config['models']['llm']
-        print(f"alibaba-api_key: {llm_config.get('api_key')}")
+        api_key_preview = _mask_key(llm_config.get('api_key'))
+        print(f"[DEBUG] 初始化FinancialAgent LLM，provider={llm_config['provider']}, api_key={api_key_preview}")
         if llm_config['provider'] == 'tongyi':
             # 使用通义千问
             try:
@@ -185,8 +198,10 @@ class SimpleRAGAgent:
     
     def __init__(self, config_path: str = "config.yaml", retriever=None):
         """初始化简化Agent"""
-        with open(config_path, 'r', encoding='utf-8') as f:
-            self.config = yaml.safe_load(f)
+        try:
+            self.config = load_config(config_path)
+        except ConfigError as exc:
+            raise ValueError(f"配置加载失败: {exc}") from exc
         
         self.retriever = retriever
         self._setup_llm()
@@ -211,12 +226,12 @@ class SimpleRAGAgent:
                     
                     # 设置环境变量（Tongyi在调用时需要DASHSCOPE_API_KEY环境变量）
                     os.environ['DASHSCOPE_API_KEY'] = api_key
-                    print(f"[DEBUG] 已设置DASHSCOPE_API_KEY环境变量: {api_key[:10]}...")
+                    print(f"[DEBUG] 已设置DASHSCOPE_API_KEY环境变量: {_mask_key(api_key)}")
                     
                     # 验证环境变量
                     env_check = os.getenv('DASHSCOPE_API_KEY')
                     if env_check != api_key:
-                        print(f"[WARNING] 环境变量设置可能失败: {env_check[:10] if env_check else 'None'}...")
+                        print(f"[WARNING] 环境变量设置可能失败: {_mask_key(env_check)}")
                     
                     self.llm = Tongyi(
                         model_name=llm_config.get('model_name', 'qwen-turbo'),
@@ -252,7 +267,7 @@ class SimpleRAGAgent:
                 if not api_key:
                     raise ValueError("通义千问API密钥未设置")
                 
-                print(f"[DEBUG] API Key: {api_key[:10]}... (长度: {len(api_key)})")
+                print(f"[DEBUG] API Key: {_mask_key(api_key)} (长度: {len(api_key)})")
                 print(f"[DEBUG] API Base: {api_base}")
                 
                 # 使用环境变量方式（最可靠，已验证可用）
@@ -264,7 +279,7 @@ class SimpleRAGAgent:
                 env_key = os.getenv('OPENAI_API_KEY')
                 env_base = os.getenv('OPENAI_API_BASE')
                 print(f"[DEBUG] 环境变量验证:")
-                print(f"  OPENAI_API_KEY = {env_key[:10] if env_key else 'None'}...")
+                print(f"  OPENAI_API_KEY = {_mask_key(env_key)}")
                 print(f"  OPENAI_API_BASE = {env_base}")
                 
                 # 直接使用环境变量初始化（已验证可用）
@@ -277,7 +292,7 @@ class SimpleRAGAgent:
                     print(f"[OK] ChatOpenAI初始化成功")
                     print(f"[DEBUG] LLM对象: {type(self.llm)}")
                     if hasattr(self.llm, 'openai_api_key'):
-                        print(f"[DEBUG] LLM的API Key: {str(self.llm.openai_api_key)[:10] if self.llm.openai_api_key else 'None'}...")
+                        print(f"[DEBUG] LLM的API Key: {_mask_key(str(self.llm.openai_api_key))}")
                     if hasattr(self.llm, 'openai_api_base'):
                         print(f"[DEBUG] LLM的API Base: {self.llm.openai_api_base}")
                     print(f"[OK] 使用OpenAI兼容接口连接通义千问 (base_url: {api_base})")
