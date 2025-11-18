@@ -469,35 +469,28 @@ class LlamaIndexer:
                 raise RuntimeError(f"无法加载索引: {error_msg}。请重新构建索引。")
     
     def query(self, question: str, top_k: Optional[int] = None) -> List:
-        """查询索引"""
+        """查询索引（仅返回检索结果，不触发LLM生成）"""
         if self.index is None:
             raise ValueError("索引未初始化，请先构建或加载索引")
         
         if top_k is None:
             top_k = self.config['rag']['top_k']
         
-        # 创建查询引擎
-        query_engine = self.index.as_query_engine(
-            similarity_top_k=top_k,
-            response_mode="tree_summarize"
-        )
+        # 直接使用retriever获取节点，避免LlamaIndex内部再调用默认LLM
+        retriever = self.index.as_retriever(similarity_top_k=top_k)
+        retrieved_nodes = retriever.retrieve(question)
         
-        # 执行查询
-        response = query_engine.query(question)
-        
-        # 获取源文档信息
         source_nodes = []
-        if hasattr(response, 'source_nodes'):
-            for node in response.source_nodes:
-                source_info = {
-                    'text': node.text,
-                    'score': node.score if hasattr(node, 'score') else None,
-                    'metadata': node.metadata if hasattr(node, 'metadata') else {}
-                }
-                source_nodes.append(source_info)
+        for node in retrieved_nodes:
+            source_nodes.append({
+                'text': getattr(node, 'text', ''),
+                'score': getattr(node, 'score', None),
+                'metadata': getattr(node, 'metadata', {}) or {}
+            })
         
+        # 不返回answer，由上层LLM（如通义千问）负责生成
         return {
-            'answer': str(response),
+            'answer': '',
             'sources': source_nodes
         }
 
