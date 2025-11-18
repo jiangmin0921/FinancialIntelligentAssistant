@@ -170,7 +170,7 @@
             } else if(id === 'nav-applications') {
               showPage('applications');
             } else if(id === 'nav-assistant') {
-              showPage('home');
+              showPage('qa');
             }
           };
         }
@@ -187,6 +187,18 @@
       document.getElementById('qa-card').addEventListener('click', () => showPage('qa'));
       document.getElementById('reimburse-card').addEventListener('click', () => showPage('reimburse'));
       document.getElementById('home-return').addEventListener('click', () => showPage('home'));
+      const quickReimburseBtn = document.getElementById('qa-quick-reimburse');
+      if(quickReimburseBtn) {
+        quickReimburseBtn.addEventListener('click', () => showPage('reimburse'));
+      }
+      const reimburseBackBtn = document.getElementById('reimburse-back');
+      if(reimburseBackBtn) {
+        reimburseBackBtn.addEventListener('click', () => showPage('qa'));
+      }
+      const qaBackHomeBtn = document.getElementById('qa-back-home');
+      if(qaBackHomeBtn) {
+        qaBackHomeBtn.addEventListener('click', () => showPage('home'));
+      }
       
       // 初始绑定导航栏事件
       bindNavEvents();
@@ -499,6 +511,17 @@
 <!-- 智能问答页面 -->
 <div class="page hidden min-h-[calc(100vh-4rem)] max-w-7xl mx-auto px-6" id="qa">
 <div class="py-8 flex flex-col h-[calc(100vh-6rem)]">
+<!-- 快速操作 -->
+<div class="mb-6 flex flex-wrap gap-4">
+<button class="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 hover:bg-blue-100 flex items-center gap-2" id="qa-quick-reimburse">
+<span class="iconify" data-icon="heroicons:bolt-20-solid"></span>
+快速报销
+</button>
+<button class="px-4 py-2 bg-white text-gray-700 rounded-lg border border-gray-200 hover:bg-gray-50 flex items-center gap-2" id="qa-back-home">
+<span class="iconify" data-icon="heroicons:home-modern-20-solid"></span>
+返回首页
+</button>
+</div>
 <!-- 聊天区域 -->
 <div class="flex-1 overflow-y-auto hide-scrollbar mb-4 bg-white rounded-xl p-6 space-y-4" id="chat-container">
 <div class="flex justify-start">
@@ -523,6 +546,16 @@
 </div>
 <!-- 报销单生成页面 -->
 <div class="page hidden min-h-[calc(100vh-4rem)] max-w-7xl mx-auto px-6 py-8" id="reimburse">
+<div class="max-w-4xl mx-auto mb-6 flex items-center justify-between">
+<div>
+<h2 class="text-2xl font-bold text-gray-800">新建报销申请单</h2>
+<p class="text-sm text-gray-500 mt-1">完善报销信息后提交审批</p>
+</div>
+<button class="flex items-center gap-2 px-4 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50" id="reimburse-back">
+<span class="iconify text-lg" data-icon="heroicons:arrow-uturn-left-20-solid"></span>
+返回
+</button>
+</div>
 <div class="max-w-4xl mx-auto grid grid-cols-3 gap-6">
 <!-- 表单区域 -->
 <div class="col-span-2 space-y-6">
