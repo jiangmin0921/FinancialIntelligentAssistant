@@ -96,6 +96,39 @@ def example_4_work_order():
         print(f"{status} 步骤{step['step_id']}: {step['tool_name']}")
 
 
+def example_5_send_email():
+    """示例 5: 发送邮件 - 报销申请邮件"""
+    print("\n" + "=" * 60)
+    print("示例 5: 发送邮件 - 发送差旅报销申请邮件给 HR")
+    print("=" * 60)
+    
+    agent = UnifiedFinancialAgent(verbose=True, max_steps=8)
+    
+    # 注意：实际发送邮件需要配置 config.yaml 中的 email 配置
+    question = (
+        "我想申请差旅报销，请帮我查询一下差旅费报销的标准，"
+        "然后帮我写一封邮件发给 HR 部门（1546476756@qq.com），"
+        "主题是'差旅费报销申请'，说明我想申请报销并询问具体流程。"
+    )
+    
+    result = agent.run(question)
+    
+    print("\n最终回答：")
+    print(result["answer"])
+    print("\n执行步骤详情：")
+    for step in result["steps"]:
+        status = "✅" if step["success"] else "❌"
+        print(f"\n{status} 步骤{step['step_id']}: {step['tool_name']}")
+        if step["success"]:
+            if step['tool_name'] == "send_email":
+                print(f"   邮件发送结果: {str(step.get('result', ''))[:200]}")
+            else:
+                result_preview = str(step.get('result', ''))[:100]
+                print(f"   结果预览: {result_preview}...")
+        else:
+            print(f"   错误: {step.get('error')}")
+
+
 def main():
     """主函数"""
     print("\n" + "=" * 60)
@@ -117,6 +150,11 @@ def main():
         example_2_data_query()
         example_3_complex_task()
         example_4_work_order()
+        
+        # 邮件发送示例（需要配置 SMTP）
+        print("\n" + "⚠️  注意: 邮件发送功能需要配置 config.yaml 中的 email 设置")
+        print("   如果未配置，示例 5 将显示配置提示\n")
+        example_5_send_email()
         
         print("\n" + "=" * 60)
         print("✅ 所有示例执行完成")

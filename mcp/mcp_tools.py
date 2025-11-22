@@ -8,6 +8,12 @@ import sqlite3
 from typing import Dict, Any, Optional, List
 import httpx
 import asyncio
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.header import Header
+from email.utils import formataddr
+import yaml
 
 # 数据库路径
 DB_DIR = os.path.join(os.path.dirname(__file__), 'data')
@@ -15,6 +21,21 @@ DB_PATH = os.path.join(DB_DIR, 'finance.db')
 
 # HTTP API 基础 URL
 API_BASE_URL = "http://localhost:5001"
+
+# 邮件配置（从 config.yaml 读取）
+def _load_email_config() -> Dict[str, Any]:
+    """加载邮件配置"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+    if not os.path.exists(config_path):
+        return {}
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            return config.get('email', {})
+    except Exception as e:
+        print(f"警告：无法加载邮件配置: {e}")
+        return {}
 
 def get_db_connection():
     """获取数据库连接"""
@@ -502,4 +523,126 @@ def create_work_order_tool(
         )
     except Exception as e:
         return f"创建工单失败: {str(e)}"
+
+# ==================== 邮件发送工具 ====================
+
+def send_email_tool(
+    to_email: str,
+    subject: str,
+    body: str,
+    cc_email: Optional[str] = None,
+    bcc_email: Optional[str] = None,
+    is_html: bool = False
+) -> str:
+    """
+    发送邮件工具（供 LangChain 使用）
+    
+    通过 SMTP 服务器发送邮件。支持纯文本和 HTML 格式。
+    
+    Args:
+        to_email: 收件人邮箱地址，例如：zhangsan@company.com
+        subject: 邮件主题
+        body: 邮件正文内容
+        cc_email: 抄送邮箱（可选），多个邮箱用逗号分隔
+        bcc_email: 密送邮箱（可选），多个邮箱用逗号分隔
+        is_html: 是否为 HTML 格式，默认 False（纯文本）
+    
+    Returns:
+        格式化的字符串结果
+    """
+    try:
+        # 加载邮件配置
+        email_config = _load_email_config()
+        
+        if not email_config:
+            return (
+                "❌ 邮件发送失败：未配置邮件服务器。\n"
+                "请在 config.yaml 中添加 email 配置，例如：\n"
+                "email:\n"
+                "  smtp_host: smtp.example.com\n"
+                "  smtp_port: 587\n"
+                "  smtp_user: your_email@example.com\n"
+                "  smtp_password: your_password\n"
+                "  from_email: your_email@example.com\n"
+                "  from_name: 财务助手"
+            )
+        
+        smtp_host = email_config.get('smtp_host')
+        smtp_port = email_config.get('smtp_port', 587)
+        smtp_user = email_config.get('smtp_user')
+        smtp_password = email_config.get('smtp_password')
+        from_email = email_config.get('from_email', smtp_user)
+        from_name = email_config.get('from_name', '财务助手')
+        use_tls = email_config.get('use_tls', True)
+        
+        if not smtp_host or not smtp_user:
+            return "❌ 邮件发送失败：SMTP 服务器配置不完整（缺少 smtp_host 或 smtp_user）"
+        
+        # 创建邮件消息
+        msg = MIMEMultipart('alternative')
+        # From 头格式：使用 formataddr 确保符合 RFC 标准
+        if from_name:
+            msg['From'] = formataddr((from_name, from_email))
+        else:
+            msg['From'] = from_email
+        msg['To'] = to_email
+        msg['Subject'] = Header(subject, 'utf-8')
+        
+        if cc_email:
+            msg['Cc'] = cc_email
+        
+        # 添加邮件正文
+        if is_html:
+            msg.attach(MIMEText(body, 'html', 'utf-8'))
+        else:
+            msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        # 构建收件人列表（包括抄送和密送）
+        recipients = [to_email]
+        if cc_email:
+            recipients.extend([email.strip() for email in cc_email.split(',')])
+        if bcc_email:
+            recipients.extend([email.strip() for email in bcc_email.split(',')])
+        
+        # 连接 SMTP 服务器并发送
+        try:
+            if smtp_port == 465:
+                # SSL 连接
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30)
+            else:
+                # TLS 连接
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=30)
+                if use_tls:
+                    server.starttls()
+            
+            if smtp_password:
+                server.login(smtp_user, smtp_password)
+            
+            server.sendmail(from_email, recipients, msg.as_string())
+            server.quit()
+            
+            recipient_list = to_email
+            if cc_email:
+                recipient_list += f", 抄送: {cc_email}"
+            if bcc_email:
+                recipient_list += f", 密送: {bcc_email}"
+            
+            return (
+                f"✅ 邮件发送成功！\n\n"
+                f"收件人：{recipient_list}\n"
+                f"主题：{subject}\n"
+                f"格式：{'HTML' if is_html else '纯文本'}\n"
+                f"内容长度：{len(body)} 字符"
+            )
+        except smtplib.SMTPAuthenticationError:
+            return "❌ 邮件发送失败：SMTP 认证失败，请检查用户名和密码"
+        except smtplib.SMTPRecipientsRefused as e:
+            return f"❌ 邮件发送失败：收件人地址被拒绝 - {str(e)}"
+        except smtplib.SMTPServerDisconnected:
+            return "❌ 邮件发送失败：SMTP 服务器连接断开"
+        except Exception as e:
+            return f"❌ 邮件发送失败：{str(e)}"
+            
+    except Exception as e:
+        return f"❌ 邮件发送失败：{str(e)}"
 

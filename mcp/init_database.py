@@ -4,7 +4,14 @@
 
 import sqlite3
 import os
+import sys
 from datetime import datetime, timedelta
+
+# 设置 UTF-8 编码（Windows 控制台支持）
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # 数据库路径
 DB_DIR = os.path.join(os.path.dirname(__file__), 'data')
@@ -72,11 +79,11 @@ def init_database():
     
     # 插入示例员工数据
     employees = [
-        ('E001', '张三', '财务部', '财务经理', 'zhangsan@company.com', '13800138001'),
-        ('E002', '李四', '技术部', '高级工程师', 'lisi@company.com', '13800138002'),
-        ('E003', '王五', '人事部', '人事专员', 'wangwu@company.com', '13800138003'),
-        ('E004', '赵六', '财务部', '会计', 'zhaoliu@company.com', '13800138004'),
-        ('E005', '钱七', '市场部', '市场经理', 'qianqi@company.com', '13800138005'),
+        ('E001', '张三', '财务部', '财务经理', '2426199899@qq.com', '13800138001'),
+        ('E002', '李四', '技术部', '高级工程师', '2426199899@qq.com', '13800138002'),
+        ('E003', '王五', '人事部', '人事专员', '2426199899@qq.com', '13800138003'),
+        ('E004', '赵六', '财务部', '会计', '2426199899@qq.com', '13800138004'),
+        ('E005', '钱七', '市场部', '市场经理', '2426199899@qq.com', '13800138005'),
     ]
     
     cursor.executemany('''
@@ -106,7 +113,7 @@ def init_database():
     conn.commit()
     conn.close()
     
-    print(f"✅ 数据库初始化成功！")
+    print(f"[成功] 数据库初始化成功！")
     print(f"   数据库路径: {DB_PATH}")
     print(f"   已插入 {len(employees)} 条员工记录")
     print(f"   已插入 {len(reimbursements)} 条报销记录")

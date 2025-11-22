@@ -16,7 +16,8 @@ from mcp.mcp_tools import (
     query_reimbursement_status_tool,
     query_reimbursement_summary_tool,
     query_reimbursement_records_tool,
-    create_work_order_tool
+    create_work_order_tool,
+    send_email_tool
 )
 
 # 配置日志
@@ -109,7 +110,7 @@ class UnifiedFinancialAgent:
             "query_reimbursement_status": ["query_employee_info"],
             "query_reimbursement_records": ["query_employee_info"],
             "create_work_order": ["query_employee_info"],
-            # 注意：generate_email 是 LLM 生成，不是工具调用
+            "send_email": ["query_employee_info"],  # 发送邮件前可能需要查询收件人信息
         }
         
         # 工具优先级（数字越小优先级越高）
@@ -120,7 +121,7 @@ class UnifiedFinancialAgent:
             "query_reimbursement_status": 3,
             "query_reimbursement_records": 3,
             "create_work_order": 4,
-            "generate_email": 5,  # 最后生成内容
+            "send_email": 5,  # 最后发送邮件
         }
     
     def _setup_llm(self):
@@ -215,6 +216,13 @@ class UnifiedFinancialAgent:
             func=create_work_order_tool,
             description="在数据库中创建一条工单或任务记录。输入参数：title（必需）、assignee_id（必需）、priority（可选）、category（可选）。",
             category="mcp_db"
+        ))
+        
+        tools.append(ToolSpec(
+            name="send_email",
+            func=send_email_tool,
+            description="通过 SMTP 服务器发送邮件。输入参数：to_email（必需，收件人邮箱）、subject（必需，邮件主题）、body（必需，邮件正文）、cc_email（可选，抄送）、bcc_email（可选，密送）、is_html（可选，是否为HTML格式，默认false）。",
+            category="mcp_email"
         ))
         
         return tools
@@ -597,6 +605,9 @@ class UnifiedFinancialAgent:
                 "query_employee_info"
             }:
                 data_info.append(tool_result)
+            elif tool_name == "send_email":
+                # 邮件发送结果单独处理，确保用户能看到发送状态
+                other_info.append(f"[邮件发送] {tool_result}")
             else:
                 other_info.append(tool_result)
 
@@ -615,10 +626,11 @@ class UnifiedFinancialAgent:
             f"{other_text}\\n\\n"
             "要求：\\n"
             "1. 用中文回答，语言专业、友好\\n"
-            "2. 如果用户需要生成邮件/申请单，请生成完整的内容\\n"
-            "3. 明确引用信息来源（如“根据《差旅费报销制度》...”）\\n"
-            "4. 如果信息不足，请说明并建议下一步操作\\n"
-            "5. 如果用户询问是否符合条件，请基于规则和数据给出明确判断\\n\\n"
+            "2. 如果用户需要发送邮件，请使用 send_email 工具实际发送（不要只生成内容）\\n"
+            "3. 如果用户只需要生成邮件内容（不发送），请生成完整的内容\\n"
+            "4. 明确引用信息来源（如\\\"根据《差旅费报销制度》...\\\"）\\n"
+            "5. 如果信息不足，请说明并建议下一步操作\\n"
+            "6. 如果用户询问是否符合条件，请基于规则和数据给出明确判断\\n\\n"
             "回答：\\n"
         )
 

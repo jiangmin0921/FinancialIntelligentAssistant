@@ -37,3 +37,33 @@ rag:
   top_k: 3  # 检索top-k个相关文档片段
   similarity_threshold: 0.7  # 相似度阈值
 
+# 邮件配置（用于发送邮件功能）
+email:
+  smtp_host: "smtp.qq.com"  # SMTP 服务器地址，例如：smtp.qq.com, smtp.gmail.com, smtp.163.com
+  smtp_port: 587  # SMTP 端口，常用：587 (TLS), 465 (SSL), 25
+  smtp_user: "2426199899@qq.com"  # SMTP 用户名（通常是邮箱地址）
+  smtp_password: "lvwpxfeoyoixebfj"  # SMTP 密码（可能是邮箱密码或授权码）
+  from_email: "2426199899@qq.com"  # 发件人邮箱（必须与 smtp_user 相同）
+  from_name: "财务助手"  # 发件人显示名称
+  use_tls: true  # 是否使用 TLS（端口 587 通常需要，端口 465 使用 SSL）
+  
+  # 示例配置（请根据实际情况修改）：
+  # QQ 邮箱：
+  #   smtp_host: "smtp.qq.com"
+  #   smtp_port: 587
+  #   smtp_user: "your_qq@qq.com"
+  #   smtp_password: "授权码"  # 需要在 QQ 邮箱设置中生成授权码
+  # 
+  # Gmail：
+  #   smtp_host: "smtp.gmail.com"
+  #   smtp_port: 587
+  #   smtp_user: "your_email@gmail.com"
+  #   smtp_password: "应用专用密码"  # 需要启用两步验证并生成应用专用密码
+  #
+  # 163 邮箱：
+  #   smtp_host: "smtp.163.com"
+  #   smtp_port: 465
+  #   smtp_user: "your_email@163.com"
+  #   smtp_password: "授权码"
+  #   use_tls: false  # 465 端口使用 SSL，不需要 TLS
+
