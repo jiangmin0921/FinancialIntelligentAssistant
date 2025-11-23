@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from langchain_openai import ChatOpenAI
 from rag_system.config import load_config, ConfigError
 from rag_system.retriever.rag_retriever import RAGRetriever
+from rag_system.agent.entity_extractor import EntityExtractor, ParameterValidator
 from mcp.mcp_tools import (
     query_employee_info_tool,
     query_reimbursement_status_tool,
@@ -69,7 +70,8 @@ class UnifiedFinancialAgent:
         config_path: str = "config.yaml",
         retriever: Optional[RAGRetriever] = None,
         verbose: bool = True,
-        max_steps: int = 8
+        max_steps: int = 8,
+        user_context: Optional[Dict] = None
     ):
         """
         初始化统一 Agent
@@ -79,9 +81,11 @@ class UnifiedFinancialAgent:
             retriever: RAG 检索器（可选，会自动初始化）
             verbose: 是否打印详细日志
             max_steps: 最大工具调用步数
+            user_context: 用户上下文（包含用户身份信息）
         """
         self.verbose = verbose
         self.max_steps = max_steps
+        self.user_context = user_context or {}  # 用户上下文（V1.1新增）
         
         # 加载配置
         try:
@@ -89,9 +93,9 @@ class UnifiedFinancialAgent:
         except ConfigError as e:
             raise ValueError(f"配置加载失败: {e}") from e
         
-        # 初始化 RAG 检索器
+        # 初始化 RAG 检索器（使用混合检索）
         if retriever is None:
-            self.retriever = RAGRetriever()
+            self.retriever = RAGRetriever(use_hybrid=True)  # V1.1: 启用混合检索
             if not self.retriever.is_index_ready():
                 logger.warning("RAG 索引未初始化，知识库检索功能将不可用")
         else:
@@ -123,6 +127,10 @@ class UnifiedFinancialAgent:
             "create_work_order": 4,
             "send_email": 5,  # 最后发送邮件
         }
+        
+        # 初始化实体提取器和参数验证器（V1.1新增）
+        self.entity_extractor = EntityExtractor(user_context=self.user_context)
+        self.param_validator = ParameterValidator(self.entity_extractor)
     
     def _setup_llm(self):
         """设置 LLM"""
@@ -228,18 +236,52 @@ class UnifiedFinancialAgent:
         return tools
     
     def _understand_intent(self, user_input: str) -> Dict[str, Any]:
-        """理解用户意图"""
+        """
+        理解用户意图（V1.1增强版：支持用户上下文）
+        
+        Args:
+            user_input: 用户输入
+            
+        Returns:
+            意图分析结果
+        """
+        # 处理用户上下文（V1.1新增）
+        processed_input = user_input
+        if self.user_context:
+            current_user = self.user_context.get('current_user', {})
+            if current_user:
+                # 替换"我"、"我的"等代词
+                if "我" in processed_input or "我的" in processed_input:
+                    user_name = current_user.get('name', '')
+                    user_id = current_user.get('employee_id', '')
+                    if user_name:
+                        processed_input = processed_input.replace("我", user_name)
+                        processed_input = processed_input.replace("我的", f"{user_name}的")
+        
         tools_desc = "\n".join([
             f"- {tool.name}: {tool.description[:100]}..."
             for tool in self.tools
         ])
+        
+        user_context_str = ""
+        if self.user_context and self.user_context.get('current_user'):
+            current_user = self.user_context['current_user']
+            user_context_str = f"""
+用户上下文：
+- 当前用户姓名: {current_user.get('name', '未知')}
+- 当前用户工号: {current_user.get('employee_id', '未知')}
+- 当前用户部门: {current_user.get('department', '未知')}
+
+注意：如果用户输入中包含"我"、"我的"，请自动替换为当前用户信息。
+"""
+        
         prompt = f"""
 你是一个智能财务助手，需要分析用户输入，识别任务类型和所需步骤。
 
 可用工具：
 {tools_desc}
-
-用户输入：{user_input}
+{user_context_str}
+用户输入：{processed_input}
 
 请分析用户意图，返回 JSON 格式：
 {{
@@ -248,14 +290,19 @@ class UnifiedFinancialAgent:
     "requires_data": true/false,   // 是否需要查询数据
     "requires_generation": true/false,  // 是否需要生成内容（如邮件）
     "entities": {{
-        "employee_name": "员工姓名（如果有）",
+        "employee_name": "员工姓名（如果有，注意'我'应替换为当前用户）",
         "employee_id": "员工工号（如果有）",
-        "date_range": "日期范围（如果有）",
+        "date_range": "日期范围（如果有，如'3月份'应转换为具体日期）",
         "recipient": "收件人（如果有）",
         "topic": "主题/话题"
     }},
     "estimated_steps": 数字  // 预估需要多少步骤
 }}
+
+特别注意：
+- "我"、"我的" → 需要替换为当前用户信息
+- "3月份" → 转换为 start_date="2024-03-01", end_date="2024-03-31"
+- "财务部" → 需要查询部门下的员工列表
 
 只返回 JSON，不要其他文字。
 """
@@ -373,36 +420,76 @@ class UnifiedFinancialAgent:
             }
     
     def _validate_and_fix_plan(self, plan: Dict, intent: Dict) -> Dict:
-        """验证和修正执行计划"""
-        steps = plan.get("steps", [])
+        """
+        验证和修正执行计划（V1.1增强版）
         
-        # 检查依赖关系
+        检查项：
+        1. 依赖关系完整性
+        2. 重复步骤
+        3. 参数完整性
+        4. 步骤顺序合理性
+        """
+        steps = plan.get("steps", [])
+        if not steps:
+            return plan
+        
+        issues = []
         executed_tools = set()
         fixed_steps = []
+        seen_steps = set()  # 用于检测重复步骤
         
-        for step in steps:
+        for i, step in enumerate(steps):
             tool_name = step.get("tool_name")
-            if not tool_name or tool_name not in self.tool_map:
+            if not tool_name:
+                issues.append(f"步骤{i+1}缺少工具名称")
                 continue
             
-            # 检查依赖
+            if tool_name not in self.tool_map:
+                issues.append(f"步骤{i+1}使用了未知工具: {tool_name}")
+                continue
+            
+            # 检查重复步骤（相同工具+相同参数）
+            step_key = (tool_name, str(sorted(step.get("arguments", {}).items())))
+            if step_key in seen_steps:
+                issues.append(f"步骤{i+1}与之前的步骤重复: {tool_name}")
+                # 跳过重复步骤，但记录问题
+                continue
+            seen_steps.add(step_key)
+            
+            # 检查依赖关系
             deps = self.tool_dependencies.get(tool_name, [])
             for dep in deps:
                 if dep not in executed_tools:
-                    # 添加依赖步骤
+                    # 缺少依赖，自动插入
                     if dep == "query_employee_info":
                         # 尝试从 intent 中获取员工信息
-                        employee_name = intent.get("entities", {}).get("employee_name")
-                        employee_id = intent.get("entities", {}).get("employee_id")
+                        entities = intent.get("entities", {})
+                        employee_name = entities.get("employee_name")
+                        employee_id = entities.get("employee_id")
                         
                         if employee_name and not employee_id:
-                            fixed_steps.append({
-                                "step_id": len(fixed_steps) + 1,
-                                "tool_name": "query_employee_info",
-                                "arguments": {"name": employee_name},
-                                "reason": f"获取员工工号，为 {tool_name} 做准备"
-                            })
-                            executed_tools.add("query_employee_info")
+                            # 检查是否已经有查询该员工的步骤
+                            has_employee_query = any(
+                                s.get("tool_name") == "query_employee_info" and
+                                s.get("arguments", {}).get("name") == employee_name
+                                for s in fixed_steps
+                            )
+                            
+                            if not has_employee_query:
+                                fixed_steps.append({
+                                    "step_id": len(fixed_steps) + 1,
+                                    "tool_name": "query_employee_info",
+                                    "arguments": {"name": employee_name},
+                                    "reason": f"获取员工工号，为 {tool_name} 做准备"
+                                })
+                                executed_tools.add("query_employee_info")
+                                issues.append(f"自动添加依赖步骤: query_employee_info (为 {tool_name} 准备)")
+            
+            # 验证参数完整性（基本检查）
+            arguments = step.get("arguments", {})
+            if tool_name == "query_reimbursement_summary":
+                if "employee_id" not in arguments and "name" not in arguments:
+                    issues.append(f"步骤{i+1} ({tool_name}) 缺少必需参数: employee_id 或 name")
             
             fixed_steps.append(step)
             executed_tools.add(tool_name)
@@ -412,6 +499,12 @@ class UnifiedFinancialAgent:
             step["step_id"] = i
         
         plan["steps"] = fixed_steps
+        
+        if self.verbose and issues:
+            logger.warning(f"[Plan Validation] 发现 {len(issues)} 个问题:")
+            for issue in issues:
+                logger.warning(f"  - {issue}")
+        
         return plan
     
     def _resolve_dependencies(self, tool_name: str, context: Dict) -> List[str]:
@@ -440,7 +533,16 @@ class UnifiedFinancialAgent:
         return resolved
     
     def _execute_step(self, step: Dict, context: Dict) -> Tuple[bool, Any, Optional[str]]:
-        """执行单个步骤"""
+        """
+        执行单个步骤（V1.1增强版：参数验证和修正）
+        
+        Args:
+            step: 执行步骤
+            context: 执行上下文
+            
+        Returns:
+            (是否成功, 结果, 错误信息)
+        """
         tool_name = step.get("tool_name")
         arguments = step.get("arguments", {})
         
@@ -450,11 +552,19 @@ class UnifiedFinancialAgent:
         tool = self.tool_map[tool_name]
         
         try:
+            # V1.1: 使用参数验证器修正参数
+            arguments = self.param_validator.validate_and_fix_params(
+                tool_name, 
+                arguments, 
+                context
+            )
+            
             # 如果本次查询指定了姓名，记录在上下文
             if tool_name == "query_employee_info":
                 if "name" in arguments and arguments.get("name"):
                     context["employee_name"] = arguments["name"]
-            # 从 context 中补充参数
+            
+            # 从 context 中补充参数（保留原有逻辑）
             def _normalize_identifier(value: Optional[str], context_key: str) -> Optional[str]:
                 if context_key not in context:
                     return value
