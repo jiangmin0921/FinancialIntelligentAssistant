@@ -29,7 +29,11 @@ except ImportError:
 
 class DocumentGenerator:
     """文档生成器"""
-    
+    # 文档生成器用于自动生成企业级的财务制度文档、报销流程、财务问答样例等内容，
+    # 可输出 PDF 或 Word 文件，便于测试和数据准备。
+    # 支持中文显示，自动注册常见字体，仅依赖于 reportlab 和 python-docx。
+    #
+    # 通常调用 generate_financial_documents() 方法生成固定模板或样例内容。
     def __init__(self, output_dir: str = "./data/generated"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
